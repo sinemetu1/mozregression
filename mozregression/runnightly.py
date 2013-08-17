@@ -30,8 +30,7 @@ class Nightly(Runner):
     name = None # abstract base class
 
     def __init__(self, profile=None, repo_name=None, bits=mozinfo.bits, persist=None,
-                       addons="", cmdargs=()):
-        # super(LocalRunner, self).__init__(
+                       addons="", cmdargs=(), date=datetime.date.today()):
         if mozinfo.os == "win":
             if bits == 64:
                 # XXX this should actually throw an error to be consumed by the caller
@@ -150,33 +149,33 @@ class Nightly(Runner):
         except:
             return ("", "")
 
-    def setup(self, date=datetime.date.today()):
+    def start(self, date=datetime.date.today(), wait=False):
         if not self.install(date):
             return False
+            
+        args = {}
+        args['profile'] = self.profile
+        args['addons'] = self.addons
+        theRunner = LocalRunner.create(
+                binary=self.binary,
+                cmdargs=list(self.cmdargs),
+                clean_profile=True,
+                profile_args=args)
+        print "theRunner: %s" % theRunner
+        theRunner.start()
+        if wait:
+            try:
+                theRunner.wait()
+            except KeyboardInterrupt:
+                theRunner.stop()
+        #super(Runner, self).__init__(myProfile)
+        #aRunner = Runner(binary=self.binary, cmdargs=list(self.cmdargs), profile=profile)
+        # super(LocalRunner, self).__init__(
 
-    # overriding with some additional profile logic
-    def start(self, date=datetime.date.today()):
-        self.setup(date)
-        print "Starting nightly"
-        if self.profile:
-            profile = self.profileClass(profile=self.profile, addons=self.addons)
-        elif len(self.addons):
-            profile = self.profileClass(addons=self.addons)
-        else:
-            profile = self.profileClass()
-
-        #myProfile = LocalRunner.create(self,
-                #binary=self.binary,
-                #cmdargs=list(self.cmdargs))
-
-        aRunner = Runner(binary=self.binary, cmdargs=list(self.cmdargs), profile=profile)
-        aRunner.start()
-        return aRunner
-
-class ThunderbirdRunner(Nightly):
+class ThunderbirdNightly(Nightly):
     appName = 'thunderbird'
     name = 'thunderbird'
-    profileClass = ThunderbirdProfile
+    profile_class = ThunderbirdProfile
 
     def getRepoName(self, date):
         # sneaking this in here
@@ -195,10 +194,10 @@ class ThunderbirdRunner(Nightly):
         else:
             return "comm-central"
 
-class FirefoxRunner(Nightly):
+class FirefoxNightly(Nightly):
     appName = 'firefox'
     name = 'firefox'
-    profileClass = FirefoxProfile
+    profile_class = FirefoxProfile
 
     def getRepoName(self, date):
         if date < datetime.date(2008, 6, 17):
@@ -206,10 +205,10 @@ class FirefoxRunner(Nightly):
         else:
             return "mozilla-central"
 
-class FennecRunner(Nightly):
+class FennecNightly(Nightly):
     appName = 'mobile'
     name = 'fennec'
-    profileClass = FirefoxProfile
+    profile_class = FirefoxProfile
 
     def __init__(self, repo_name=None, bits=mozinfo.bits, persist=None):
         super.__init__(self, repo_name, persist)
@@ -245,9 +244,9 @@ def parseBits(optionBits):
         # if 64 bits is passed on a 32 bit system, it won't be honored
         return mozinfo.bits
 
-apps = {'thunderbird': ThunderbirdRunner,
-        'fennec'     : FennecRunner,
-        'firefox'    : FirefoxRunner}
+apps = {'thunderbird': ThunderbirdNightly,
+        'fennec'     : FennecNightly,
+        'firefox'    : FirefoxNightly}
 
 def getApp(app):
     return apps[app]
@@ -284,11 +283,7 @@ def cli(args=sys.argv[1:]):
     anApp = getApp(options.app)
     runner = anApp(profile=options.profile, repo_name=options.repo_name, bits=options.bits,
                    persist=options.persist)
-    ffRunner = runner.start(date=datetime.date.today())
-    try:
-        ffRunner.wait()
-    except KeyboardInterrupt:
-        runner.stop()
+    runner.start(wait=True)
 
 if __name__ == "__main__":
     cli()
