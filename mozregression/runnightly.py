@@ -17,6 +17,7 @@ from mozfile import rmtree
 from mozprofile import FirefoxProfile
 from mozprofile import ThunderbirdProfile
 from mozrunner import Runner
+from mozrunner import LocalRunner
 from optparse import OptionParser
 from utils import strsplit, get_date, download_url, urlLinks
 from ConfigParser import ConfigParser
@@ -24,11 +25,13 @@ from ConfigParser import ConfigParser
 subprocess._cleanup = lambda : None # mikeal's fix for subprocess threading bug
 # XXX please reference this issue with a URL!
 
-class Nightly(object):
+class Nightly(Runner):
 
     name = None # abstract base class
 
-    def __init__(self, repo_name=None, bits=mozinfo.bits, persist=None):
+    def __init__(self, profile=None, repo_name=None, bits=mozinfo.bits, persist=None,
+                       addons="", cmdargs=()):
+        # super(LocalRunner, self).__init__(
         if mozinfo.os == "win":
             if bits == 64:
                 # XXX this should actually throw an error to be consumed by the caller
@@ -42,6 +45,9 @@ class Nightly(object):
                 self.buildRegex = ".*linux-i686.tar.bz2"
         elif mozinfo.os == "mac":
             self.buildRegex = ".*mac.*\.dmg"
+        self.addons = addons
+        self.cmdargs = cmdargs
+        self.profile = profile
         self.persist = persist
         self.repo_name = repo_name
         self._monthlinks = {}
@@ -91,7 +97,11 @@ class Nightly(object):
         else:
             return False
 
-    def install(self):
+    def install(self, date=datetime.date.today()):
+        if not self.download(date=date):
+            print "Could not find nightly from %s" % date
+            return False # download failed
+        print "Installing nightly"
         if not self.name:
             raise NotImplementedError("Can't invoke abstract base class")
         self.remove_tempdir()
@@ -127,7 +137,6 @@ class Nightly(object):
 
         return False
 
-
     ### functions for invoking nightly
 
     def getAppInfo(self):
@@ -141,25 +150,30 @@ class Nightly(object):
         except:
             return ("", "")
 
-    def start(self, profile, addons, cmdargs):
-        if profile:
-            profile = self.profileClass(profile=profile, addons=addons)
-        elif len(addons):
-            profile = self.profileClass(addons=addons)
+    def setup(self, date=datetime.date.today()):
+        if not self.install(date):
+            return False
+
+    # overriding with some additional profile logic
+    def start(self, date=datetime.date.today()):
+        self.setup(date)
+        print "Starting nightly"
+        if self.profile:
+            profile = self.profileClass(profile=self.profile, addons=self.addons)
+        elif len(self.addons):
+            profile = self.profileClass(addons=self.addons)
         else:
             profile = self.profileClass()
 
-        self.runner = Runner(binary=self.binary, cmdargs=cmdargs, profile=profile)
-        self.runner.start()
-        return True
+        #myProfile = LocalRunner.create(self,
+                #binary=self.binary,
+                #cmdargs=list(self.cmdargs))
 
-    def stop(self):
-        self.runner.stop()
+        aRunner = Runner(binary=self.binary, cmdargs=list(self.cmdargs), profile=profile)
+        aRunner.start()
+        return aRunner
 
-    def wait(self):
-        self.runner.wait()
-
-class ThunderbirdNightly(Nightly):
+class ThunderbirdRunner(Nightly):
     appName = 'thunderbird'
     name = 'thunderbird'
     profileClass = ThunderbirdProfile
@@ -181,8 +195,7 @@ class ThunderbirdNightly(Nightly):
         else:
             return "comm-central"
 
-
-class FirefoxNightly(Nightly):
+class FirefoxRunner(Nightly):
     appName = 'firefox'
     name = 'firefox'
     profileClass = FirefoxProfile
@@ -193,13 +206,13 @@ class FirefoxNightly(Nightly):
         else:
             return "mozilla-central"
 
-class FennecNightly(Nightly):
+class FennecRunner(Nightly):
     appName = 'mobile'
     name = 'fennec'
     profileClass = FirefoxProfile
 
     def __init__(self, repo_name=None, bits=mozinfo.bits, persist=None):
-        Nightly.__init__(self, repo_name, persist)
+        super.__init__(self, repo_name, persist)
         self.buildRegex = 'fennec-.*\.apk'
         self.binary = 'org.mozilla.fennec/.App'
         self.persist = persist
@@ -224,47 +237,6 @@ class FennecNightly(Nightly):
         # adb shell run-as org.mozilla.fennec kill $PID
         return True
 
-class NightlyRunner(object):
-
-    apps = {'thunderbird': ThunderbirdNightly,
-            'fennec': FennecNightly,
-            'firefox': FirefoxNightly}
-
-    def __init__(self, addons=None, appname="firefox", repo_name=None,
-                 profile=None, cmdargs=(), bits=mozinfo.bits, persist=None):
-        self.app = self.apps[appname](repo_name=repo_name, bits=bits, persist=persist)
-        self.addons = addons
-        self.profile = profile
-        self.persist = persist
-        self.cmdargs = list(cmdargs)
-
-    def install(self, date=datetime.date.today()):
-        if not self.app.download(date=date):
-            print "Could not find nightly from %s" % date
-            return False # download failed
-        print "Installing nightly"
-        return self.app.install()
-
-    def start(self, date=datetime.date.today()):
-        if not self.install(date):
-            return False
-        print "Starting nightly"
-        if not self.app.start(self.profile, self.addons, self.cmdargs):
-            return False
-        return True
-
-    def stop(self):
-        self.app.stop()
-
-    def wait(self):
-        self.app.wait()
-
-    def cleanup(self):
-        self.app.cleanup()
-
-    def getAppInfo(self):
-        return self.app.getAppInfo()
-
 def parseBits(optionBits):
     """returns the correctly typed bits"""
     if optionBits == "32":
@@ -273,9 +245,16 @@ def parseBits(optionBits):
         # if 64 bits is passed on a 32 bit system, it won't be honored
         return mozinfo.bits
 
+apps = {'thunderbird': ThunderbirdRunner,
+        'fennec'     : FennecRunner,
+        'firefox'    : FirefoxRunner}
+
+def getApp(app):
+    return apps[app]
+
 def cli(args=sys.argv[1:]):
     """moznightly command line entry point"""
-
+    
     # parse command line options
     parser = OptionParser()
     parser.add_option("-d", "--date", dest="date", help="date of the nightly",
@@ -286,8 +265,8 @@ def cli(args=sys.argv[1:]):
     parser.add_option("-p", "--profile", dest="profile", help="path to profile to user", metavar="PATH")
     parser.add_option("-n", "--app", dest="app", help="application name",
                       type="choice",
-                      metavar="[%s]" % "|".join(NightlyRunner.apps.keys()),
-                      choices=NightlyRunner.apps.keys(),
+                      metavar="[%s]" % "|".join(apps.keys()),
+                      choices=apps.keys(),
                       default="firefox")
     parser.add_option("-r", "--repo", dest="repo_name", help="repository name on ftp.mozilla.org",
                       metavar="[tracemonkey|mozilla-1.9.2]", default=None)
@@ -302,15 +281,14 @@ def cli(args=sys.argv[1:]):
     addons = strsplit(options.addons or "", ",")
 
     # run nightly
-    runner = NightlyRunner(appname=options.app, addons=addons,
-                           profile=options.profile, repo_name=options.repo_name, bits=options.bits,
-                           persist=options.persist)
-    runner.start(get_date(options.date))
+    anApp = getApp(options.app)
+    runner = anApp(profile=options.profile, repo_name=options.repo_name, bits=options.bits,
+                   persist=options.persist)
+    ffRunner = runner.start(date=datetime.date.today())
     try:
-        runner.wait()
+        ffRunner.wait()
     except KeyboardInterrupt:
         runner.stop()
-
 
 if __name__ == "__main__":
     cli()

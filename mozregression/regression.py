@@ -9,7 +9,7 @@ import mozinfo
 import subprocess
 import sys
 from optparse import OptionParser
-from runnightly import NightlyRunner, parseBits
+from runnightly import Nightly, parseBits, getApp
 from utils import strsplit, get_date
 
 class Bisector(object):
@@ -31,7 +31,7 @@ class Bisector(object):
             lastGoodChangeset = self.goodAppInfo[1]
         else:
             #Download and get the info
-            missingNightly = NightlyRunner()
+            missingNightly = Nightly()
             missingNightly.install(goodDate)
             lastGoodChangeset = missingNightly.getAppInfo()[1]
 
@@ -39,7 +39,7 @@ class Bisector(object):
             firstBadChangeset = self.badAppInfo[1]
         else:
             #Download and get the info
-            missingNightly = NightlyRunner()
+            missingNightly = Nightly()
             missingNightly.install(badDate)
             firstBadChangeset = missingNightly.getAppInfo()[1]
 
@@ -162,9 +162,10 @@ def cli():
         options.good_date = "2009-01-01"
         print "No 'good' date specified, using " + options.good_date
 
-    runner = NightlyRunner(appname=options.app, addons=addons, repo_name=options.repo_name,
-                           profile=options.profile, cmdargs=cmdargs, bits=options.bits,
-                           persist=options.persist)
+    anApp = getApp(options.app)
+    runner = anApp(addons=addons, repo_name=options.repo_name,
+                   profile=options.profile, cmdargs=cmdargs, bits=options.bits,
+                   persist=options.persist)
     bisector = Bisector(runner, appname=options.app)
     bisector.bisect(get_date(options.good_date), get_date(options.bad_date))
 
