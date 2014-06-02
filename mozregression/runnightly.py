@@ -92,8 +92,8 @@ class Nightly(object):
             dest = os.path.join(self.persist, "%s--%s--%s"%(date_str, repo_name, dest))
         return dest
 
-    def download(self, date=datetime.date.today(), dest=None):
-        url = self.getBuildUrl(date)
+    def download(self, date=datetime.date.today(), dest=None, repo_name=None):
+        url = self.getBuildUrl(date, repo_name)
         if url:
             if not dest:
                 dest = self.get_destination(url, date)
@@ -114,7 +114,7 @@ class Nightly(object):
         self.binary = mozinstall.get_binary(mozinstall.install(src=self.dest, dest=self.tempdir), self.name)
         return True
 
-    def getBuildUrl(self, datestamp):
+    def getBuildUrl(self, datestamp, repo_name):
         if self.appName == 'fennec':
             repo = 'mobile'
         else:
@@ -145,7 +145,12 @@ class Nightly(object):
                     if re.match(self.buildRegex, href):
                         matches.append(url + dirhref + href)
         matches.sort()
-        return matches[-1] # the most recent build url
+        if len(matches) == 0:
+            print "Tried to get builds from %s that match '%s' but didn't find any." % \
+                  (url, self.buildRegex)
+            sys.exit()
+        else:
+            return matches[-1] # the most recent build url
 
     ### functions for invoking nightly
 
@@ -269,9 +274,10 @@ class NightlyRunner(object):
         self.profile = profile
         self.persist = persist
         self.cmdargs = list(cmdargs)
+        self.repo_name = repo_name
 
     def install(self, date=datetime.date.today()):
-        if not self.app.download(date=date):
+        if not self.app.download(date=date, repo_name=self.repo_name):
             print "Could not find build from %s" % date
             return False # download failed
         print "Installing nightly"

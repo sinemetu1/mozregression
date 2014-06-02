@@ -15,8 +15,10 @@ class FirefoxInbound(FirefoxNightly):
         self.buildRegex = self._getBuildRegex(self.name, bits)
         self.bits = bits
 
-    def getBuildUrl(self, timestamp):
-        url = "%s%s/" % (getBuildBaseURL(bits=self.bits), timestamp)
+    def getBuildUrl(self, timestamp, repo_name):
+        inboundBranch = repo_name
+        baseUrl = getBuildBaseURL(bits=self.bits, inboundBranch=inboundBranch)
+        url = "%s%s/" % (baseUrl, timestamp)
         matches = []
         for link in urlLinks(url):
             href = link.get("href")
@@ -35,8 +37,10 @@ class FennecInbound(FennecNightly):
     def __init__(self, persist=None):
         self.persist = persist
 
-    def getBuildUrl(self, timestamp):
-        url = "%s%s/" % (getBuildBaseURL(appName=self.appName), timestamp)
+    def getBuildUrl(self, timestamp, repo_name):
+        inboundBranch = repo_name
+        baseUrl = getBuildBaseURL(appName=self.appName, inboundBranch=inboundBranch)
+        url = "%s%s/" % (baseUrl, timestamp)
         matches = []
         for link in urlLinks(url):
             href = link.get("href")
@@ -61,6 +65,7 @@ class InboundRunner(NightlyRunner):
         self.addons = addons
         self.profile = profile
         self.persist = persist
+        self.repo_name = repo_name
         self.cmdargs = list(cmdargs)
 
     def printResumeInfo(self, lastGoodRevision, firstBadRevision):

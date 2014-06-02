@@ -95,7 +95,8 @@ class Bisector(object):
             inboundRevisions = getInboundRevisions(
                 self.lastGoodRevision, self.firstBadRevision,
                 appName=self.inboundRunner.appName,
-                bits=self.inboundRunner.bits)
+                bits=self.inboundRunner.bits,
+                inboundBranch=self.inboundRunner.repo_name)
 
             if not inboundRevisions:
                 print "Oh noes, no (more) inbound revisions :("

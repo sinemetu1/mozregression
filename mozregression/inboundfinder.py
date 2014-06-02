@@ -7,33 +7,37 @@ from optparse import OptionParser
 
 import requests
 
-def getBuildBaseURL(appName='firefox', bits=mozinfo.bits, os=mozinfo.os):
+def getBuildBaseURL(appName='firefox', bits=mozinfo.bits, os=mozinfo.os,
+                    inboundBranch='mozilla-inbound'):
 
     if appName == 'fennec':
         return "http://inbound-archive.pub.build.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/mozilla-inbound-android/"
 
     baseURL = 'http://inbound-archive.pub.build.mozilla.org/pub/mozilla.org/firefox/tinderbox-builds/'
+    baseURL += inboundBranch
     if os == "win":
         if bits == 64:
             # XXX this should actually throw an error to be consumed by the caller
             print "No builds available for 64 bit Windows (try specifying --bits=32)"
             sys.exit()
         else:
-            return baseURL + 'mozilla-inbound-win32/'
+            return baseURL + '-win32/'
     elif os == "linux":
         if bits == 64:
-            return baseURL + 'mozilla-inbound-linux64/'
+            return baseURL + '-linux64/'
         else:
-            return baseURL + 'mozilla-inbound-linux/'
+            return baseURL + '-linux/'
     elif os == "mac":
-        return baseURL + 'mozilla-inbound-macosx64/'
+        return baseURL + '-macosx64/'
 
-def getInboundRevisions(startRev, endRev, appName='firefox', bits=mozinfo.bits, os=mozinfo.os):
+def getInboundRevisions(startRev, endRev, appName='firefox', bits=mozinfo.bits, os=mozinfo.os,
+                        inboundBranch='mozilla-inbound'):
 
     revisions = []
-    r = requests.get('https://hg.mozilla.org/integration/mozilla-inbound/'
-                     'json-pushes?fromchange=%s&tochange=%s'% (startRev,
-                                                               endRev))
+    pushUrl = "https://hg.mozilla.org/integration/%s/" \
+            "json-pushes?fromchange=%s&tochange=%s" % \
+            (inboundBranch, startRev, endRev)
+    r = requests.get(pushUrl)
     pushlog = json.loads(r.content)
     for pushid in sorted(pushlog.keys()):
         push = pushlog[pushid]
@@ -46,7 +50,7 @@ def getInboundRevisions(startRev, endRev, appName='firefox', bits=mozinfo.bits, 
     endtime = revisions[-1][1]
     rawRevisions = map(lambda l: l[0], revisions)
 
-    baseURL = getBuildBaseURL(appName=appName, bits=bits, os=os)
+    baseURL = getBuildBaseURL(appName=appName, bits=bits, os=os, inboundBranch=inboundBranch)
     range = 60*60*4 # anything within four hours is potentially within the range
     timestamps = map(lambda l: int(l),
                      filter(lambda l: l.isdigit(), # sometimes we have links like "latest"
@@ -89,6 +93,8 @@ def cli(args=sys.argv[1:]):
                       "bits autodetection", default=mozinfo.bits)
     parser.add_option("-n", "--app", dest="app", help="application name (firefox, fennec or thunderbird)",
                       metavar="[firefox|fennec|thunderbird]", default="firefox")
+    parser.add_option("--inbound-branch", dest="inboundBranch", help="override inbound branch",
+                      default="mozilla-inbound")
 
     options, args = parser.parse_args(args)
     if not options.startRev or not options.endRev:
@@ -97,7 +103,8 @@ def cli(args=sys.argv[1:]):
 
     revisions = getInboundRevisions(options.startRev, options.endRev,
                                     appName=options.app, os=options.os,
-                                    bits=options.bits)
+                                    bits=options.bits,
+                                    inboundBranch=options.inboundBranch)
     print "Revision, Timestamp, Order"
     for revision in revisions:
         print ", ".join(map(lambda s: str(s), revision))
